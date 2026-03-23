@@ -7,8 +7,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
   <style>
     :root {
       --bg-primary: #0a0f1a;
@@ -765,133 +765,357 @@
   L.marker([28.0,56.2], { icon: L.divIcon({ className:'', html:'<div style="color:#ef4444;font-size:10px;opacity:0.5;white-space:nowrap">IRAN &rarr;</div>', iconSize:[0,0] }), interactive:false }).addTo(map);
 
   // ========================
-  // PDF EXPORT
+  // PDF EXPORT — Designed A4 Report
   // ========================
-  async function exportPDF() {
+  function exportPDF() {
     const btn = document.querySelector('.export-btn');
     const overlay = document.getElementById('exportOverlay');
-    const step = document.getElementById('exportStep');
-
+    const stepEl = document.getElementById('exportStep');
     btn.disabled = true;
     overlay.classList.add('active');
+    stepEl.textContent = 'Building report...';
 
-    try {
-      const jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-      if (!jsPDF) throw new Error('jsPDF library failed to load');
-      const body = document.body;
+    setTimeout(() => {
+      try {
+        const jsPDFClass = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+        if (!jsPDFClass) throw new Error('jsPDF library not loaded');
+        const doc = new jsPDFClass('p', 'mm', 'a4');
+        const W = 210, H = 297, M = 15; // A4 portrait, margins
+        const cW = W - M * 2; // content width
+        let y = 0;
 
-      // Hide export button during capture
-      btn.style.display = 'none';
+        // Colors
+        const dark = [10, 15, 26];
+        const card = [17, 24, 39];
+        const green = [16, 185, 129];
+        const red = [239, 68, 68];
+        const blue = [59, 130, 246];
+        const orange = [245, 158, 11];
+        const cyan = [6, 182, 212];
+        const purple = [139, 92, 246];
+        const pink = [236, 72, 153];
+        const white = [241, 245, 249];
+        const muted = [148, 163, 184];
+        const dimmed = [100, 116, 139];
 
-      // Force all chart canvases to render at higher res
-      step.textContent = 'Capturing page sections...';
-      await new Promise(r => setTimeout(r, 300));
+        function bg() { doc.setFillColor(...dark); doc.rect(0, 0, W, H, 'F'); }
+        function newPage() { doc.addPage(); bg(); y = M; }
+        function checkPage(need) { if (y + need > H - M) newPage(); }
 
-      // Capture sections individually for better quality
-      const sections = [
-        document.querySelector('.header'),
-        document.getElementById('kpiGrid'),
-        document.querySelector('.incident-section'),
-        document.querySelector('.map-section'),
-        ...document.querySelectorAll('.chart-card'),
-        document.querySelector('.timeline-section'),
-        document.querySelector('.observations'),
-        document.querySelector('.footer'),
-      ].filter(Boolean);
+        // ========== PAGE 1: Cover ==========
+        bg();
+        // Green gradient header bar
+        doc.setFillColor(12, 74, 30);
+        doc.roundedRect(M, M, cW, 55, 4, 4, 'F');
+        doc.setFillColor(17, 24, 39, 0.5);
+        doc.roundedRect(M, M + 25, cW, 30, 0, 0, 'F');
 
-      // Use full-page capture approach
-      step.textContent = 'Rendering dashboard at high resolution...';
+        doc.setTextColor(...white);
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Saudi Ministry of Defense', W / 2, M + 18, { align: 'center' });
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...muted);
+        doc.text('@modgovksa Strike & Interception Analysis', W / 2, M + 28, { align: 'center' });
 
-      const pageWidth = body.scrollWidth;
-      const pageHeight = body.scrollHeight;
+        doc.setFontSize(10);
+        doc.setTextColor(...green);
+        doc.text('Source: @modgovksa official X/Twitter account  |  Mar 2 - Mar 23, 2026', W / 2, M + 40, { align: 'center' });
+        doc.setTextColor(...dimmed);
+        doc.setFontSize(8);
+        doc.text('Report generated: ' + new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), W / 2, M + 48, { align: 'center' });
 
-      const canvas = await html2canvas(body, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#0a0f1a',
-        width: pageWidth,
-        height: pageHeight,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: pageWidth,
-        windowHeight: pageHeight,
-        logging: false,
-        onclone: function(clonedDoc) {
-          // Ensure the cloned body is fully expanded
-          const clonedBody = clonedDoc.body;
-          clonedBody.style.width = pageWidth + 'px';
-          clonedBody.style.height = pageHeight + 'px';
-          clonedBody.style.overflow = 'visible';
-          // Hide the export button in clone
-          const clonedBtn = clonedBody.querySelector('.export-btn');
-          if (clonedBtn) clonedBtn.style.display = 'none';
-          const clonedOverlay = clonedBody.querySelector('.export-overlay');
-          if (clonedOverlay) clonedOverlay.style.display = 'none';
+        y = M + 65;
+
+        // ========== KPI GRID ==========
+        stepEl.textContent = 'Adding KPI summary...';
+        const kpiData = [
+          { label: 'TOTAL LAUNCHED', value: totalLaunched + '+', color: orange },
+          { label: 'INTERCEPTED', value: totalIntercepted + '+', color: green },
+          { label: 'INTERCEPT RATE', value: interceptRate + '%', color: cyan },
+          { label: 'NON-INTERCEPTED', value: '' + totalNonIntercepted, color: red },
+          { label: 'DIRECT HITS', value: '' + totalDirectHits, color: pink },
+          { label: 'DEBRIS EVENTS', value: '' + totalDebrisEvents, color: purple },
+          { label: 'PEAK DRONES/DAY', value: '70', color: blue },
+          { label: 'ACTIVE DAYS', value: '' + dailyData.length, color: cyan },
+        ];
+
+        const kpiCols = 4, kpiW = (cW - 6) / kpiCols, kpiH = 22;
+        kpiData.forEach((k, i) => {
+          const col = i % kpiCols;
+          const row = Math.floor(i / kpiCols);
+          const kx = M + col * (kpiW + 2);
+          const ky = y + row * (kpiH + 2);
+
+          doc.setFillColor(...card);
+          doc.roundedRect(kx, ky, kpiW, kpiH, 2, 2, 'F');
+          doc.setDrawColor(30, 41, 59);
+          doc.roundedRect(kx, ky, kpiW, kpiH, 2, 2, 'S');
+
+          doc.setFontSize(7);
+          doc.setTextColor(...dimmed);
+          doc.setFont('helvetica', 'normal');
+          doc.text(k.label, kx + 4, ky + 7);
+
+          doc.setFontSize(18);
+          doc.setTextColor(...k.color);
+          doc.setFont('helvetica', 'bold');
+          doc.text(k.value, kx + 4, ky + 18);
+        });
+
+        y += Math.ceil(kpiData.length / kpiCols) * (kpiH + 2) + 8;
+
+        // ========== NOTABLE INCIDENTS ==========
+        stepEl.textContent = 'Adding incident timeline...';
+        doc.setFillColor(...red);
+        doc.rect(M, y, 3, 8, 'F');
+        doc.setFontSize(13);
+        doc.setTextColor(...white);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Notable Incidents', M + 6, y + 6);
+        y += 12;
+
+        const incidentData = [
+          { date: 'Mar 2', type: 'DEBRIS', title: 'Interception debris caused limited fire in Riyadh', color: orange },
+          { date: 'Mar 3', type: 'DIRECT HIT', title: '2 drones struck US Embassy — fire + material damage', color: red },
+          { date: 'Mar 7', type: 'NOT INTERCEPTED', title: 'Ballistic missile fell in uninhabited area near Prince Sultan AB', color: orange },
+          { date: 'Mar 18', type: 'DEBRIS', title: 'Missile debris fell across Riyadh, near Prince Sultan AB & refinery', color: orange },
+          { date: 'Mar 22', type: 'NOT INTERCEPTED', title: '1 of 2 ballistic missiles fell in uninhabited area (Riyadh)', color: orange },
+        ];
+
+        incidentData.forEach(inc => {
+          checkPage(10);
+          doc.setFillColor(...card);
+          doc.roundedRect(M, y, cW, 9, 1.5, 1.5, 'F');
+
+          // Type badge
+          doc.setFillColor(...inc.color);
+          doc.roundedRect(M + 2, y + 2, 28, 5, 1, 1, 'F');
+          doc.setFontSize(6);
+          doc.setTextColor(...dark);
+          doc.setFont('helvetica', 'bold');
+          doc.text(inc.type, M + 16, y + 5.5, { align: 'center' });
+
+          // Date
+          doc.setFontSize(8);
+          doc.setTextColor(...muted);
+          doc.setFont('helvetica', 'bold');
+          doc.text(inc.date, M + 33, y + 5.8);
+
+          // Title
+          doc.setFontSize(8);
+          doc.setTextColor(...white);
+          doc.setFont('helvetica', 'normal');
+          doc.text(inc.title, M + 52, y + 5.8);
+
+          y += 11;
+        });
+
+        y += 5;
+
+        // ========== DAILY LOG TABLE ==========
+        stepEl.textContent = 'Adding daily interception log...';
+        checkPage(30);
+        doc.setFillColor(...green);
+        doc.rect(M, y, 3, 8, 'F');
+        doc.setFontSize(13);
+        doc.setTextColor(...white);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Daily Interception Log', M + 6, y + 6);
+        y += 10;
+
+        const tableHead = [['Date', 'Drones', 'Missiles', 'Non-Int.', 'Posts', 'Key Targets', 'Notes']];
+        const tableBody = dailyData.map(d => [
+          d.date,
+          '' + d.drones,
+          '' + d.missiles,
+          d.nonIntercepted > 0 ? '' + d.nonIntercepted : '-',
+          '' + d.posts,
+          d.locations.slice(0, 3).join(', '),
+          d.notes.length > 55 ? d.notes.substring(0, 52) + '...' : d.notes,
+        ]);
+
+        doc.autoTable({
+          startY: y,
+          head: tableHead,
+          body: tableBody,
+          margin: { left: M, right: M },
+          theme: 'plain',
+          styles: {
+            fillColor: card, textColor: muted, fontSize: 7, cellPadding: 2,
+            lineColor: [30, 41, 59], lineWidth: 0.2, font: 'helvetica',
+          },
+          headStyles: {
+            fillColor: [26, 35, 50], textColor: dimmed, fontStyle: 'bold',
+            fontSize: 7, halign: 'left',
+          },
+          columnStyles: {
+            0: { cellWidth: 15, fontStyle: 'bold', textColor: white },
+            1: { cellWidth: 14, halign: 'center', textColor: [96, 165, 250] },
+            2: { cellWidth: 14, halign: 'center', textColor: [248, 113, 113] },
+            3: { cellWidth: 14, halign: 'center', textColor: red },
+            4: { cellWidth: 12, halign: 'center' },
+            5: { cellWidth: 38 },
+            6: { cellWidth: cW - 15 - 14 - 14 - 14 - 12 - 38 },
+          },
+          didDrawPage: function(data) {
+            // Redraw dark background on new pages
+            if (data.pageNumber > 1) {
+              doc.setFillColor(...dark);
+              doc.rect(0, 0, W, H, 'F');
+              // Re-draw table area on top
+            }
+          },
+          willDrawPage: function(data) {
+            doc.setFillColor(...dark);
+            doc.rect(0, 0, W, H, 'F');
+          },
+        });
+
+        y = doc.lastAutoTable.finalY + 8;
+
+        // ========== NEW PAGE: Weapon & Location Summary ==========
+        newPage();
+        stepEl.textContent = 'Adding analysis summary...';
+
+        // Section: Weapon Types
+        doc.setFillColor(...orange);
+        doc.rect(M, y, 3, 8, 'F');
+        doc.setFontSize(13);
+        doc.setTextColor(...white);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Weapon Type Breakdown', M + 6, y + 6);
+        y += 14;
+
+        const weapons = [
+          { name: 'Drones (intercepted)', count: totalInterceptedDrones, color: blue, pct: ((totalInterceptedDrones / totalLaunched) * 100).toFixed(1) },
+          { name: 'Drones (hit target)', count: 2, color: [59, 130, 246, 0.4], pct: ((2 / totalLaunched) * 100).toFixed(1) },
+          { name: 'Ballistic Missiles (intercepted)', count: totalInterceptedMissiles - 1, color: red, pct: (((totalInterceptedMissiles - 1) / totalLaunched) * 100).toFixed(1) },
+          { name: 'Ballistic Missiles (not intercepted)', count: 2, color: [239, 68, 68, 0.4], pct: ((2 / totalLaunched) * 100).toFixed(1) },
+          { name: 'Cruise Missiles', count: 1, color: orange, pct: ((1 / totalLaunched) * 100).toFixed(1) },
+        ];
+
+        weapons.forEach(w => {
+          doc.setFillColor(...card);
+          doc.roundedRect(M, y, cW, 10, 1.5, 1.5, 'F');
+
+          // Bar
+          const barMax = cW - 80;
+          const barW = Math.max(2, (w.count / totalLaunched) * barMax);
+          const c = Array.isArray(w.color) && w.color.length === 3 ? w.color : blue;
+          doc.setFillColor(...c);
+          doc.roundedRect(M + 70, y + 3.5, barW, 3, 1, 1, 'F');
+
+          doc.setFontSize(8);
+          doc.setTextColor(...white);
+          doc.setFont('helvetica', 'normal');
+          doc.text(w.name, M + 3, y + 6.5);
+
+          doc.setTextColor(...muted);
+          doc.setFont('helvetica', 'bold');
+          doc.text(w.count + ' (' + w.pct + '%)', M + 70 + barW + 3, y + 6.5);
+
+          y += 12;
+        });
+
+        y += 8;
+
+        // Section: Target Locations
+        doc.setFillColor(...blue);
+        doc.rect(M, y, 3, 8, 'F');
+        doc.setFontSize(13);
+        doc.setTextColor(...white);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Target Locations (by frequency)', M + 6, y + 6);
+        y += 14;
+
+        locSorted.forEach((loc, i) => {
+          checkPage(12);
+          const barMax = cW - 80;
+          const barW = Math.max(2, (loc[1] / locSorted[0][1]) * barMax);
+          const colors = [blue, orange, red, purple, pink, cyan, green, [251, 146, 60]];
+          const c = colors[i % colors.length];
+
+          doc.setFillColor(...card);
+          doc.roundedRect(M, y, cW, 10, 1.5, 1.5, 'F');
+
+          doc.setFillColor(...c);
+          doc.roundedRect(M + 55, y + 3.5, barW, 3, 1, 1, 'F');
+
+          doc.setFontSize(8);
+          doc.setTextColor(...white);
+          doc.setFont('helvetica', 'normal');
+          doc.text(loc[0], M + 3, y + 6.5);
+
+          doc.setTextColor(...muted);
+          doc.setFont('helvetica', 'bold');
+          doc.text(loc[1] + ' days', M + 55 + barW + 3, y + 6.5);
+
+          y += 12;
+        });
+
+        y += 8;
+
+        // ========== KEY OBSERVATIONS ==========
+        checkPage(80);
+        doc.setFillColor(...orange);
+        doc.rect(M, y, 3, 8, 'F');
+        doc.setFontSize(13);
+        doc.setTextColor(...white);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Key Observations', M + 6, y + 6);
+        y += 14;
+
+        const observations = [
+          '14x escalation in 2 weeks: drone attacks surged from ~5/day (Mar 6) to 70/day (Mar 20).',
+          'US Embassy struck Mar 3: 2 drones caused fire and minor damage — before interception campaign began.',
+          'Oil infrastructure focus (Week 1): Shaybah oilfield was the primary target during Mar 6-12.',
+          'Shift to urban targets (Week 2+): Eastern Province and Riyadh replaced oil infrastructure as main targets.',
+          'At least 2 ballistic missiles evaded defenses: fell in uninhabited areas (Mar 7 and Mar 22).',
+          'Interception debris caused collateral: fire in Riyadh (Mar 2), debris near refinery and Prince Sultan AB (Mar 18).',
+          'Prince Sultan Air Base repeatedly targeted with ballistic missiles — US military assets on Saudi soil.',
+          '@modgovksa maintains purely factual tone with no political attribution in any posts.',
+        ];
+
+        observations.forEach((obs, i) => {
+          checkPage(12);
+          doc.setFillColor(...card);
+          doc.roundedRect(M, y, cW, 10, 1.5, 1.5, 'F');
+
+          doc.setFillColor(...green);
+          doc.circle(M + 5, y + 5, 1.5, 'F');
+
+          doc.setFontSize(7.5);
+          doc.setTextColor(...muted);
+          doc.setFont('helvetica', 'normal');
+          doc.text(obs, M + 10, y + 5.8, { maxWidth: cW - 14 });
+
+          y += 12;
+        });
+
+        // ========== FOOTER on every page ==========
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let p = 1; p <= pageCount; p++) {
+          doc.setPage(p);
+          doc.setFontSize(7);
+          doc.setTextColor(...dimmed);
+          doc.text('Data source: @modgovksa on X/Twitter | Analysis: Mar 2-23, 2026 | All data from official Saudi Ministry of Defense posts', W / 2, H - 8, { align: 'center' });
+          doc.text('Page ' + p + ' of ' + pageCount, W - M, H - 8, { align: 'right' });
         }
-      });
 
-      step.textContent = 'Building PDF pages...';
-      await new Promise(r => setTimeout(r, 100));
+        stepEl.textContent = 'Saving...';
+        doc.save('modgovksa-strike-analysis-' + new Date().toISOString().slice(0, 10) + '.pdf');
 
-      // Create PDF - A4 landscape for dashboard
-      const pdfWidth = 297; // A4 landscape width mm
-      const pdfHeight = 210; // A4 landscape height mm
-      const pdf = new jsPDF('landscape', 'mm', 'a4');
+        stepEl.textContent = 'Done!';
+        setTimeout(() => { overlay.classList.remove('active'); btn.disabled = false; }, 800);
 
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-      const totalPages = Math.ceil(imgHeight / pdfHeight);
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
-
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) pdf.addPage();
-
-        step.textContent = `Building page ${page + 1} of ${totalPages}...`;
-
-        // Calculate the source crop for this page
-        const sourceY = (page * pdfHeight / imgHeight) * canvas.height;
-        const sourceH = (pdfHeight / imgHeight) * canvas.height;
-
-        // Create a temporary canvas for this page slice
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = Math.min(sourceH, canvas.height - sourceY);
-        const ctx = pageCanvas.getContext('2d');
-
-        // Fill background
-        ctx.fillStyle = '#0a0f1a';
-        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-
-        // Draw the slice
-        ctx.drawImage(canvas,
-          0, sourceY, canvas.width, pageCanvas.height,
-          0, 0, pageCanvas.width, pageCanvas.height
-        );
-
-        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.92);
-        const sliceHeight = (pageCanvas.height * pdfWidth) / pageCanvas.width;
-        pdf.addImage(pageImgData, 'JPEG', 0, 0, pdfWidth, sliceHeight);
+      } catch (err) {
+        console.error('PDF export error:', err);
+        stepEl.textContent = 'Error: ' + err.message;
+        setTimeout(() => { overlay.classList.remove('active'); btn.disabled = false; }, 3000);
       }
-
-      step.textContent = 'Saving file...';
-      await new Promise(r => setTimeout(r, 100));
-
-      pdf.save('modgovksa-strike-analysis-' + new Date().toISOString().slice(0, 10) + '.pdf');
-
-      step.textContent = 'Done!';
-      await new Promise(r => setTimeout(r, 800));
-
-    } catch (err) {
-      console.error('PDF export error:', err);
-      step.textContent = 'Error: ' + err.message;
-      await new Promise(r => setTimeout(r, 2000));
-    } finally {
-      btn.style.display = '';
-      btn.disabled = false;
-      overlay.classList.remove('active');
-    }
+    }, 200);
   }
 </script>
 
