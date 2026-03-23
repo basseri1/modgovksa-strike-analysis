@@ -7,6 +7,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
   <style>
     :root {
       --bg-primary: #0a0f1a;
@@ -194,15 +196,62 @@
     .popup-bar-fill { height: 100%; border-radius: 3px; }
     .popup-detail { font-size: 11px; color: #64748b; margin-top: 8px; }
 
+    .export-btn {
+      position: fixed; top: 24px; right: 24px; z-index: 9999;
+      background: linear-gradient(135deg, #10b981, #059669); color: #fff;
+      border: none; padding: 12px 24px; border-radius: 10px; font-size: 14px;
+      font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;
+      box-shadow: 0 4px 20px rgba(16,185,129,0.3); transition: all 0.2s;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .export-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 28px rgba(16,185,129,0.45); }
+    .export-btn:active { transform: translateY(0); }
+    .export-btn:disabled { opacity: 0.6; cursor: wait; transform: none; }
+    .export-btn svg { width: 18px; height: 18px; }
+
+    .export-overlay {
+      display: none; position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
+    }
+    .export-overlay.active { display: flex; }
+    .export-modal {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 40px; text-align: center; max-width: 360px;
+    }
+    .export-modal .spinner {
+      width: 48px; height: 48px; border: 4px solid var(--border); border-top-color: var(--accent-green);
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .export-modal p { color: var(--text-secondary); font-size: 14px; }
+    .export-modal .step { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+
+    @media print { .export-btn { display: none !important; } }
+
     @media (max-width: 768px) {
       .charts-grid { grid-template-columns: 1fr; }
       .obs-grid { grid-template-columns: 1fr; }
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
       body { padding: 12px; }
+      .export-btn { top: 12px; right: 12px; padding: 10px 16px; font-size: 12px; }
     }
   </style>
 </head>
 <body>
+
+  <button class="export-btn" onclick="exportPDF()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+    Export PDF
+  </button>
+
+  <div class="export-overlay" id="exportOverlay">
+    <div class="export-modal">
+      <div class="spinner"></div>
+      <p>Generating PDF...</p>
+      <div class="step" id="exportStep">Capturing dashboard...</div>
+    </div>
+  </div>
 
   <div class="header">
     <h1><span class="ar">وزارة الدفاع</span> — @modgovksa Strike Analysis</h1>
@@ -714,6 +763,135 @@
   L.polyline([[27.5,56.0],[24.7,46.7]], { color:'#ef4444', weight:1.5, opacity:0.2, dashArray:'8,8' }).addTo(map);
   L.polyline([[26.0,56.5],[22.5,54.0]], { color:'#f59e0b', weight:1.5, opacity:0.2, dashArray:'8,8' }).addTo(map);
   L.marker([28.0,56.2], { icon: L.divIcon({ className:'', html:'<div style="color:#ef4444;font-size:10px;opacity:0.5;white-space:nowrap">IRAN &rarr;</div>', iconSize:[0,0] }), interactive:false }).addTo(map);
+
+  // ========================
+  // PDF EXPORT
+  // ========================
+  async function exportPDF() {
+    const btn = document.querySelector('.export-btn');
+    const overlay = document.getElementById('exportOverlay');
+    const step = document.getElementById('exportStep');
+
+    btn.disabled = true;
+    overlay.classList.add('active');
+
+    try {
+      const { jsPDF } = window.jspdf;
+      const body = document.body;
+
+      // Hide export button during capture
+      btn.style.display = 'none';
+
+      // Force all chart canvases to render at higher res
+      step.textContent = 'Capturing page sections...';
+      await new Promise(r => setTimeout(r, 300));
+
+      // Capture sections individually for better quality
+      const sections = [
+        document.querySelector('.header'),
+        document.getElementById('kpiGrid'),
+        document.querySelector('.incident-section'),
+        document.querySelector('.map-section'),
+        ...document.querySelectorAll('.chart-card'),
+        document.querySelector('.timeline-section'),
+        document.querySelector('.observations'),
+        document.querySelector('.footer'),
+      ].filter(Boolean);
+
+      // Use full-page capture approach
+      step.textContent = 'Rendering dashboard at high resolution...';
+
+      const pageWidth = body.scrollWidth;
+      const pageHeight = body.scrollHeight;
+
+      const canvas = await html2canvas(body, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#0a0f1a',
+        width: pageWidth,
+        height: pageHeight,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: pageWidth,
+        windowHeight: pageHeight,
+        logging: false,
+        onclone: function(clonedDoc) {
+          // Ensure the cloned body is fully expanded
+          const clonedBody = clonedDoc.body;
+          clonedBody.style.width = pageWidth + 'px';
+          clonedBody.style.height = pageHeight + 'px';
+          clonedBody.style.overflow = 'visible';
+          // Hide the export button in clone
+          const clonedBtn = clonedBody.querySelector('.export-btn');
+          if (clonedBtn) clonedBtn.style.display = 'none';
+          const clonedOverlay = clonedBody.querySelector('.export-overlay');
+          if (clonedOverlay) clonedOverlay.style.display = 'none';
+        }
+      });
+
+      step.textContent = 'Building PDF pages...';
+      await new Promise(r => setTimeout(r, 100));
+
+      // Create PDF - A4 landscape for dashboard
+      const pdfWidth = 297; // A4 landscape width mm
+      const pdfHeight = 210; // A4 landscape height mm
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      const totalPages = Math.ceil(imgHeight / pdfHeight);
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+      for (let page = 0; page < totalPages; page++) {
+        if (page > 0) pdf.addPage();
+
+        step.textContent = `Building page ${page + 1} of ${totalPages}...`;
+
+        // Calculate the source crop for this page
+        const sourceY = (page * pdfHeight / imgHeight) * canvas.height;
+        const sourceH = (pdfHeight / imgHeight) * canvas.height;
+
+        // Create a temporary canvas for this page slice
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = Math.min(sourceH, canvas.height - sourceY);
+        const ctx = pageCanvas.getContext('2d');
+
+        // Fill background
+        ctx.fillStyle = '#0a0f1a';
+        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
+        // Draw the slice
+        ctx.drawImage(canvas,
+          0, sourceY, canvas.width, pageCanvas.height,
+          0, 0, pageCanvas.width, pageCanvas.height
+        );
+
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.92);
+        const sliceHeight = (pageCanvas.height * pdfWidth) / pageCanvas.width;
+        pdf.addImage(pageImgData, 'JPEG', 0, 0, pdfWidth, sliceHeight);
+      }
+
+      step.textContent = 'Saving file...';
+      await new Promise(r => setTimeout(r, 100));
+
+      pdf.save('modgovksa-strike-analysis-' + new Date().toISOString().slice(0, 10) + '.pdf');
+
+      step.textContent = 'Done!';
+      await new Promise(r => setTimeout(r, 800));
+
+    } catch (err) {
+      console.error('PDF export error:', err);
+      step.textContent = 'Error: ' + err.message;
+      await new Promise(r => setTimeout(r, 2000));
+    } finally {
+      btn.style.display = '';
+      btn.disabled = false;
+      overlay.classList.remove('active');
+    }
+  }
 </script>
 
 </body>
