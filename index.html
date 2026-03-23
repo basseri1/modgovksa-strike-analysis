@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <style>
     :root {
       --bg-primary: #0a0f1a;
@@ -776,7 +776,8 @@
     overlay.classList.add('active');
 
     try {
-      const { jsPDF } = window.jspdf;
+      const jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if (!jsPDF) throw new Error('jsPDF library failed to load');
       const body = document.body;
 
       // Hide export button during capture
@@ -836,7 +837,7 @@
       // Create PDF - A4 landscape for dashboard
       const pdfWidth = 297; // A4 landscape width mm
       const pdfHeight = 210; // A4 landscape height mm
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pdf = new jsPDF('landscape', 'mm', 'a4');
 
       const imgWidth = pdfWidth;
       const imgHeight = (canvas.height * pdfWidth) / canvas.width;
